@@ -1,0 +1,521 @@
+<!-- Developer name : Alamgir Hossen-->
+<!DOCTYPE html>
+<html>
+<head>
+   <meta charset="utf-8">
+   <link rel = "stylesheet" type = "text/css" href = "css/bootstrap.min.css" />
+   <script src="js/tf.min.js"></script>
+   <script src="js/posenet.min.js"></script>
+   <meta name="viewport" content="width=device-width, initial-scale=1">
+   <script src="js/jquery-3.2.1.min.js"></script>
+   <script src="js/obniz.js" crossorigin="anonymous"></script>
+   <script src="js/Stats.js"></script>
+   <script src="js/bootstrap.min.js"></script>
+   <style type="text/css">
+   /* body {
+    background: #555;
+    } */
+
+    .content {
+        margin: 20px 2px 20px 20px;
+    }
+       h2 {
+           padding: 5px 6px;
+           color: #494949;
+           background: #f4f4f4;
+           border-left: solid 5px #7db4e6;
+           border-bottom: solid 3px #d7d7d7;
+       }
+       h3 {
+           background: #c2edff;
+           padding: 0.5em;
+       }
+       .btn-container {
+           display: flex;
+           justify-content: center;
+       }
+       .btn-control {
+           flex-grow: 1;
+           text-align: center;
+       }
+       .btn-control input {
+           font-size: 1.6em;
+           font-weight: bold;
+           padding: 10px 30px;
+           height: 80px;
+           width: 90%;
+       }
+       .data-view {
+           margin: 8px;
+       }
+       .status-view {
+           font-size: 1.6em;
+           font-weight: bold;
+           background: #FFFF99;
+           text-align: center;
+           padding: 5px;
+       }
+       .center{
+        margin: auto;
+      
+        border: 3px solid #73AD21;
+        padding: 10px;
+       }
+   </style>
+</head>
+<body>
+<div class="container">
+
+   <div class="row">
+        <div class="col-md-8">  
+            <div class="row">
+                <div class="col-md-4">
+                    <h2 id="data_show_pitch"></h2>
+                </div>
+                <div class="col-md-4">
+                    <h2 id="data_show_yaw"></h2>
+                </div>
+            </div>
+
+            <div class="view-contents-mode2 view-contents-mode3">
+                <video id="video" width="600px" height="500px" autoplay="1" style="position: absolute;"></video>
+                <canvas id="canvas" width="600px" height="500px" style="position: relative;"></canvas>
+            </div>
+       
+        </div>
+        <div class="col-md-4">
+                <!-- <img id="scream" width="220" height="277" src="img/image.png" alt="The Scream">
+                <p>Canvas:</p> -->
+                <div class="row">
+                    <canvas id="myCanvas" width="240" height="297" style="border:1px solid #d3d3d3;" style="position: relative;">
+               
+                            </canvas>
+                </div>
+                <br>
+                <div class="row">
+                        <canvas id="myCanvasPhoto" width="240" height="297" style="border:1px solid #d3d3d3;" style="position: relative;">
+                   
+                                </canvas>
+                    </div>
+               
+        </div>
+    </div>
+</div>
+</body>
+<script>
+   const imageScaleFactor = 0.2;
+   const outputStride = 16;
+   const flipHorizontal = false;
+   const stats = new Stats();
+   const canvas = document.getElementById('canvas');
+   const contentWidth = canvas.width;
+   const contentHeight = canvas.height;
+   const fontLayout = "bold 20px Arial";
+   const fontPoint = "bold 15px Arial";
+   var score = 0;
+   var mypose = new Object();
+   var myposition = new Object();
+   var cvw = canvas.width;
+   var cvh = canvas.height;
+   var ang_view = {//angle of view of webcam. for mode 3
+       x: 90, y: 60
+   };
+   async function bindPage() {
+       const net = await posenet.load();
+       let video;
+       try {
+           video = await loadVideo();
+       } catch (e) {
+           //console.error(e);
+           return;
+       }
+       detectPoseInRealTime(video, net);
+   }
+   async function loadVideo() {
+       const video = await setupCamera();
+       video.play();
+       return video;
+   }
+   async function setupCamera() {
+       const video = document.getElementById('video');
+       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+           const stream = await navigator.mediaDevices.getUserMedia({
+               'audio': false,
+               'video': { width: contentWidth, height: contentHeight }
+           });
+           video.srcObject = stream;
+           return new Promise(resolve => {
+               video.onloadedmetadata = () => {
+                   resolve(video);
+               };
+           });
+       } else {
+           const errorMessage = "This browser does not support video capture, or this device does not have a camera";
+           alert(errorMessage);
+           return Promise.reject(errorMessage);
+       }
+   }
+   function detectPoseInRealTime(video, net) {
+       const ctx = canvas.getContext('2d');
+       const flipHorizontal = true; // since images are being fed from a webcam
+       async function poseDetectionFrame() {
+           if (detect_pose == false) { return; }
+           stats.begin();
+           let poses = [];
+           const pose = await net.estimateSinglePose(video, imageScaleFactor, flipHorizontal, outputStride);
+           poses.push(pose);
+           
+           ctx.clearRect(0, 0, contentWidth, contentHeight);
+           ctx.save();
+           ctx.scale(-1, 1);
+           ctx.translate(-contentWidth, 0);
+           ctx.drawImage(video, 0, 0, contentWidth, contentHeight);
+           ctx.restore();
+           ctx.font = fontLayout;
+           drawPoints(poses, ctx);
+           stats.end();
+           requestAnimationFrame(poseDetectionFrame);
+       }
+       poseDetectionFrame();
+   }
+   function getPart(partname, pose) {
+       return pose["keypoints"].filter(function (partpoint) {
+           if (partpoint.part == partname) {
+               // console.log(partpoint);
+               return true;
+           }
+       });
+   }
+   function drawPoints(poses, ctx) {
+       poses.forEach(({ s, keypoints }) => {
+           keypoints.forEach((partpoint) => {
+               drawPoint(partpoint, ctx);
+               drawPointName(partpoint, ctx);
+           });
+       });
+
+       
+       //get positions and scores
+       var nose = getPart("nose", poses[0])[0];
+       var eye_l = getPart("leftEye", poses[0])[0];
+       var eye_r = getPart("rightEye", poses[0])[0];
+       var ear_l = getPart("leftEar", poses[0])[0];
+       var ear_r = getPart("rightEar", poses[0])[0];
+       var n = nose.position;
+       var l = eye_r.position;
+       var r = eye_l.position;
+       var p_ear_l = ear_l.position;
+       var p_ear_r = ear_r.position;
+
+       //console.log(n);
+       //Calculate scores
+       var score = poses[0]["score"];
+       var score_nose = nose.score;
+      
+       var score_face = (
+           nose.score
+           + eye_l.score
+           + eye_r.score
+           + ear_l.score
+           + ear_r.score
+       ) / 5;
+       ctx.font = fontLayout;
+       _mypose_yaw = Math.atan2(2 * n.x - l.x - r.x, r.x - l.x);
+       var ear_y = (p_ear_l.y + p_ear_r.y) / 2;
+       // mypose.score = score;
+       if (score_nose > 0.9) {
+           ctx.fillStyle = "blue";
+          
+           //cvw = canvas width
+           //n.x = x miens somantoril 
+           //n.y = x miens up
+           //ang_view opore define kora ase j oi khane thake koto angle dorkar
+
+           myposition.roll = 90 * Math.atan((cvw - 2 * n.x) / cvw * Math.tan(ang_view.z / 2 * Math.PI / 180)) * 180 / Math.PI;
+           myposition.yaw = 90 - Math.atan((cvw - 2 * n.x) / cvw * Math.tan(ang_view.x / 2 * Math.PI / 180)) * 180 / Math.PI;
+           myposition.pitch = 90 + Math.atan((cvh - 2 * n.y) / cvh * Math.tan(ang_view.y / 2 * Math.PI / 180)) * 180 / Math.PI;
+           //roll = 180 * atan (accelerationY/sqrt(accelerationX*accelerationX + accelerationZ*accelerationZ))/M_PI;
+          // ctx.fillText("Nose yaw angle " + myposition.yaw.toFixed(0) + " Nose pitch angle " + myposition.pitch.toFixed(0), 20, 40);
+          $("#data_show_roll").text("Roll "+ myposition.roll.toFixed(0));
+           $("#data_show_yaw").text("Yaw "+ myposition.yaw.toFixed(0));
+           $("#data_show_pitch").text("Pitch "+ myposition.pitch.toFixed(0));
+           
+
+            //Low Pass Filter
+           
+            //var fXg = (n.x * score_nose) + (n.x * (1.0 - score_nose));
+            //console.log(fXg);
+            //Roll & Pitch Equations
+            // roll  = (atan2(-fYg, fZg)*180.0)/M_PI;
+             //pitch = (Math.atan2(fXg, Math.sqrt(fYg*fYg + fZg*fZg))*180.0)/Math.PI;
+
+            //console.log(score_nose);
+            var
+            img = new Image,
+            ct = document.getElementById('myCanvas').getContext('2d');
+
+            img.src = 'img/1.png';
+
+            var interval = setInterval(function() {
+            var x = 0, y = 0;
+
+            return function () {
+                ct.clearRect(0, 0, ct.canvas.width, ct.canvas.height);
+                ct.transform(1,0,0,1,0,0);
+                ct.drawImage(img, myposition.yaw.toFixed(0), myposition.pitch.toFixed(0),180, 200);
+                //ct.drawImage(img, myposition.pitch.toFixed(0), myposition.yaw.toFixed(0),180, 200);
+                
+                x += 1;
+                if (x > ct.canvas.width) {
+                x = 0;
+                }
+            };
+            }(),false);
+
+
+            var
+            img_one = new Image,
+            cx = document.getElementById('myCanvasPhoto').getContext('2d');
+
+            img_one.src = 'img/image.png';
+
+            var interval = setInterval(function() {
+            var x =  myposition.pitch.toFixed(0), y = myposition.yaw.toFixed(0);
+            myposition.pitch.toFixed(0)
+            return function () {
+                // ctc.clearRect(10, 10, ct.canvas.width, ct.canvas.height);
+                // ctc.drawImage(img_one, myposition.pitch.toFixed(0), myposition.yaw.toFixed(0),180, 200);
+
+                // x += 1;
+                // if (x > ctc.canvas.width) {
+                // x = 0;
+                // }
+
+                cx.beginPath();
+                cx.moveTo(200, 200);
+                cx.strokeStyle = 'red';
+                cx.lineTo(x, y);
+                cx.stroke();
+                cx.closePath();
+
+                cx.beginPath();
+                cx.strokeStyle = 'blue';
+                cx.moveTo(x, y);
+                cx.lineTo(x, 200);
+                cx.stroke();
+                cx.closePath();
+
+                cx.beginPath();
+                cx.strokeStyle = 'green';
+                cx.moveTo(x, 200);
+                cx.lineTo(200, 200);
+                cx.stroke();
+                cx.closePath();
+                
+                cx.beginPath();
+                grd = cx.createRadialGradient(x,y,3,x,y,10);
+                grd.addColorStop(0, "white");
+                grd.addColorStop(1, "orange");
+                cx.fillStyle = grd;  
+                cx.arc( x, y, 10 , 0, Math.PI*2, true );
+                cx.fill();      
+                cx.closePath();
+
+                cx.beginPath();
+                grd = cx.createRadialGradient(200,200,3,200,200,10);
+                grd.addColorStop(0, "white");
+                grd.addColorStop(1, "red");
+                cx.fillStyle = grd;  
+                cx.arc( 200, 200, 10 , 0, Math.PI*2, true );
+                cx.fill();      
+                cx.closePath();
+               // let angle = myposition.pitch.toFixed(0);
+                //drawToFitRotated(ctc, angle, img_one);
+
+            };
+            }(),false);
+      
+
+
+
+        
+           //console.log(myposition.yaw);
+            //console.log((ang_view.x / 2 * Math.PI / 180));
+
+           //console.log(myposition.yaw);
+          
+       } else {
+           ctx.fillStyle = "red";
+       }
+       if (score_face > 0.75) {
+           ctx.fillStyle = "blue";
+           mypose.yaw = _mypose_yaw * -180 / Math.PI + 90;
+           mypose.pitch = Math.asin(2 * (n.y - ear_y) * Math.cos(_mypose_yaw) / Math.abs(p_ear_r.x - p_ear_l.x)) * -180 / Math.PI + 90;
+           //ctx.fillText("Pose face angle yaw: " + mypose.yaw.toFixed(0) + " Pose face angle pitch: " + mypose.pitch.toFixed(0), 20, 60);
+       } else {
+           ctx.fillStyle = "red";
+       }
+
+       
+       //ctx.fillText("Score: " + score_nose.toFixed(2) + ", " + score_face.toFixed(2), 20, 20);
+       ctx.fill();
+   }
+
+   function drawToFitRotated(ctx, angle, image){
+    var dist = Math.sqrt(Math.pow(ctx.canvas.width /2, 2 ) + Math.pow(ctx.canvas.height / 2, 2));
+    var imgDist = Math.min(image.width, image.height) / 2;
+    var minScale = dist / imgDist;
+    var dx = Math.cos(angle) * minScale;
+    var dy = Math.sin(angle) * minScale; 
+    ctx.setTransform(dx, dy, -dy, dx, ctx.canvas.width / 2, ctx.canvas.height / 2);
+    ctx.drawImage(image, -image.width / 2, - image.height / 2);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+}
+
+   function drawPoint(point, ctx) {
+
+        //Define Variables
+       
+        var point_size =5;
+        var font_size = "30px";
+        // ctx.beginPath();
+        // ctx.moveTo(600, 400);
+        // ctx.lineTo(point.position.x, point.position.y);
+        // ctx.lineTo(point.position.y, point.position.x);
+        // ctx.stroke();
+        // ctx.closePath();
+
+        ctx.beginPath();
+        ctx.moveTo(600, 350);
+        ctx.strokeStyle = 'red';
+        ctx.lineTo(point.position.x, point.position.y);
+        ctx.stroke();
+        ctx.closePath();
+
+        ctx.beginPath();
+        ctx.strokeStyle = 'green';
+        ctx.moveTo(point.position.x, 200);
+        ctx.lineTo(point.position.x, point.position.y);
+        ctx.stroke();
+        ctx.closePath();
+
+        ctx.beginPath();
+        grd = ctx.createRadialGradient(point.position.x,point.position.y,3,point.position.x,point.position.y,10);
+        grd.addColorStop(0, "white");
+        grd.addColorStop(1, "orange");
+        ctx.fillStyle = grd;  
+        ctx.arc(point.position.x, point.position.y, point_size, 0, 2 * Math.PI)
+        ctx.fill();      
+        ctx.closePath();
+        
+        ctx.beginPath();
+        grd = ctx.createRadialGradient(200,200,3,200,200,10);
+        grd.addColorStop(0, "white");
+        grd.addColorStop(1, "red");
+        ctx.fillStyle = grd;  
+        ctx.arc(point.position.x, point.position.y, 3, 0, 2 * Math.PI);
+        ctx.fill();      
+        ctx.closePath();
+
+       //ctx.arc(point.position.x, point.position.y, point_size, 0, 2 * Math.PI);
+       //ctx.arc(point.position.x, point.position.y, 3, 0, 2 * Math.PI);
+       //ctx.fillStyle = "red";
+      // ctx.fill();
+   }
+   function drawPointName(point, ctx) {
+       ctx.font = fontPoint;
+       ctx.beginPath();
+       ctx.fillStyle = 'rgba(155, 187, 89, 0.7)';
+       //console.log(point.part);
+       ctx.fillText(point.part, point.position.x, point.position.y);
+       ctx.fill();
+   }
+   var servo_y, servo_p;
+   var s_yaw, s_pitch;
+   var yaw0 = 0, pitch0 = 0;
+   var mode = 1;
+   var detect_pose = false;
+   var smp = new Object();
+   var max_dps = 300;
+   var min_dps = 30;
+   var lpf_a = 0.5;
+   function constrain(amt, low, high) {
+       return (amt) < (low) ? (low) : ((amt) > (high) ? (high) : (amt));
+   };
+   function diffAngle(ang, crt) {
+    console.log(ang);
+       var ang_d = ang - crt;
+       while (ang_d < 0 || ang_d > 360) {
+           if (ang_d < 0) {
+               ang_d += 360;
+           } else if (ang_d > 360) {
+               ang_d -= 360;
+           }
+       }
+      
+       return ang_d;
+   }
+   function setServo(yaw, pitch) {
+       try {
+          
+           servo_y.angle(yaw);
+           s_yaw = yaw;
+           servo_p.angle(pitch);
+           s_pitch = pitch;
+           
+           $('#d4').html("SERVO: " + s_yaw.toFixed(2) + ", " + s_pitch.toFixed(2));
+       } catch (e) {
+           //console.error(e);
+           return;
+       }
+
+       
+   }
+   function moveServoToward(yaw, pitch, max_deg, min_deg) {
+       yaw = lpf_a * s_yaw + (1 - lpf_a) * yaw;
+       pitch = lpf_a * s_pitch + (1 - lpf_a) * pitch;
+       //console.log(yaw);
+       //console.log(pitch);
+       setServo(yaw, pitch);
+   }
+   function startServo(src, interval) {
+       updateServo = setInterval(function () {
+           // console.dir(src);
+           max_deg = max_dps * (interval / 1000);
+           min_deg = min_dps * (interval / 1000);
+           moveServoToward(src.yaw, src.pitch, max_deg, min_deg);
+       }, interval);
+       $('#d1').html("RUNNING");
+   }
+
+   function stopServo() {
+       if (typeof updateServo !== "undefined") {
+           clearInterval(updateServo);
+       }
+       $('#d1').html("STOP");
+   }
+   
+   $(document).ready(function () {
+       $(".view-contents-mode1").hide();
+       $(".view-contents-mode2").hide();
+       $(".view-contents-mode3").hide();
+       $(function () {
+           var mode = '1';
+           $('#view-mode').html('MODE' + mode + ': ' + $('[name=select-mode] option:selected').text());
+           stopServo();
+           detect_pose = false;
+           $(".view-contents-mode1").hide();
+           $(".view-contents-mode2").hide();
+           $(".view-contents-mode3").hide();
+           switch (mode) {
+               case "1":
+                   $(".view-contents-mode3").show();
+                   detect_pose = true;
+                   bindPage();
+                   startServo(myposition, 100);
+                   break;
+           }
+       });
+   });
+</script>
+</html> 
